@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>USDT Sender</title>
+  <title>USDT Multi-Chain Sender</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tronweb@4.4.0/dist/TronWeb.min.js"></script>
   <style>
     body {
       font-family: Arial;
       padding: 40px;
-      background: #f9f9f9;
-      color: #333;
+      background: #f0f0f0;
     }
-    input, button {
+    input, select, button {
       padding: 10px;
       margin: 10px 0;
       width: 100%;
@@ -23,9 +23,18 @@
   </style>
 </head>
 <body>
-  <h1>💸 USDT Transfer from Connected Wallet</h1>
+  <h1>💸 USDT Multi-Chain Sender</h1>
+
+  <select id="networkSelect" onchange="switchNetwork()">
+    <option value="">Select Network</option>
+    <option value="ethereum">Ethereum (ERC-20)</option>
+    <option value="bsc">BNB Chain (BEP-20)</option>
+    <option value="polygon">Polygon (ERC-20)</option>
+    <option value="tron">TRON (TRC-20)</option>
+  </select>
 
   <button onclick="connectWallet()">🔗 Connect Wallet</button>
+  <button onclick="disconnectWallet()">❌ Disconnect Wallet</button>
   <div id="walletInfo"></div>
 
   <div class="section" id="transferForm" style="display:none;">
@@ -38,52 +47,86 @@
   <div id="status" class="section"></div>
 
   <script>
-    const USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Ethereum Mainnet USDT
+    const USDT_ADDRESSES = {
+      ethereum: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      bsc: "0x55d398326f99059fF775485246999027B3197955",
+      polygon: "0x3813e82e6f7098b9583FC0F33a962D02018B6803",
+      tron: "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
+    };
+
     const ERC20_ABI = [
-      "function transfer(address to, uint256 amount) public returns (bool)",
-      "function balanceOf(address account) public view returns (uint256)",
-      "function decimals() public view returns (uint8)"
+      "function transfer(address to, uint amount) public returns (bool)",
+      "function balanceOf(address account) public view returns (uint)",
+      "function decimals() view returns (uint8)"
     ];
 
     let provider, signer, userAddress, usdtContract, usdtDecimals;
+    let currentNetwork = "";
+
+    function switchNetwork() {
+      currentNetwork = document.getElementById("networkSelect").value;
+      document.getElementById("walletInfo").innerText = "";
+      document.getElementById("transferForm").style.display = "none";
+      document.getElementById("status").innerText = "";
+    }
 
     async function connectWallet() {
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-      if (typeof window.ethereum !== 'undefined' && window.ethereum.isMetaMask) {
+      if (["ethereum", "bsc", "polygon"].includes(currentNetwork)) {
+        if (!window.ethereum) {
+          alert("Install MetaMask.");
+          return;
+        }
         try {
           provider = new ethers.providers.Web3Provider(window.ethereum);
           await provider.send("eth_requestAccounts", []);
           signer = provider.getSigner();
           userAddress = await signer.getAddress();
-          document.getElementById("walletInfo").innerText = `✅ Connected: ${userAddress}`;
-
-          usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, signer);
+          const usdtAddress = USDT_ADDRESSES[currentNetwork];
+          usdtContract = new ethers.Contract(usdtAddress, ERC20_ABI, signer);
           usdtDecimals = await usdtContract.decimals();
 
+          document.getElementById("walletInfo").innerText = `✅ ${currentNetwork.toUpperCase()} Wallet: ${userAddress}`;
           document.getElementById("transferForm").style.display = "block";
           estimateFee();
         } catch (err) {
-          alert("❌ Wallet connection rejected.");
+          alert("❌ Wallet connection failed.");
         }
-      } else {
-        alert("No wallet detected. Redirecting to download...");
-        if (isMobile) {
-          window.location.href = "https://trustwallet.com/browser-extension";
-        } else {
-          window.location.href = "https://metamask.io/download.html";
+
+      } else if (currentNetwork === "tron") {
+        if (!window.tronWeb || !window.tronWeb.defaultAddress.base58) {
+          alert("Install TronLink and unlock it.");
+          return;
         }
+        userAddress = window.tronWeb.defaultAddress.base58;
+        usdtDecimals = 6;
+        document.getElementById("walletInfo").innerText = `✅ TRON Wallet: ${userAddress}`;
+        document.getElementById("transferForm").style.display = "block";
+        estimateFee();
       }
     }
 
+    function disconnectWallet() {
+      userAddress = null;
+      signer = null;
+      provider = null;
+      usdtContract = null;
+      document.getElementById("walletInfo").innerText = "❌ Wallet disconnected.";
+      document.getElementById("transferForm").style.display = "none";
+      document.getElementById("status").innerText = "";
+    }
+
     async function estimateFee() {
-      try {
-        const gasPrice = await provider.getGasPrice();
-        const gasLimit = ethers.BigNumber.from("60000");
-        const fee = gasPrice.mul(gasLimit);
-        document.getElementById("feeEstimate").innerText = `Fee Estimate: ${ethers.utils.formatEther(fee)} ETH`;
-      } catch (e) {
-        document.getElementById("feeEstimate").innerText = "Fee Estimate: Error";
+      if (["ethereum", "bsc", "polygon"].includes(currentNetwork)) {
+        try {
+          const gasPrice = await provider.getGasPrice();
+          const gasLimit = ethers.BigNumber.from("60000");
+          const fee = gasPrice.mul(gasLimit);
+          document.getElementById("feeEstimate").innerText = `Fee Estimate: ${ethers.utils.formatEther(fee)} ${currentNetwork === 'polygon' ? 'MATIC' : currentNetwork === 'bsc' ? 'BNB' : 'ETH'}`;
+        } catch (e) {
+          document.getElementById("feeEstimate").innerText = "Fee Estimate: Error";
+        }
+      } else if (currentNetwork === "tron") {
+        document.getElementById("feeEstimate").innerText = "Fee Estimate: ~1-2 TRX";
       }
     }
 
@@ -91,47 +134,69 @@
       const receiver = document.getElementById("receiver").value;
       const amount = document.getElementById("amount").value;
 
-      if (!receiver || !amount) {
-        alert("Please fill in all fields.");
+      if (!receiver || !amount || !userAddress) {
+        alert("Please fill in all fields and connect your wallet.");
         return;
       }
 
       try {
-        const tokenAmount = ethers.utils.parseUnits(amount, usdtDecimals);
-        const tx = await usdtContract.transfer(receiver, tokenAmount);
-        document.getElementById("status").innerText = "⏳ Sending USDT...";
+        document.getElementById("status").innerText = "⏳ Sending transaction...";
 
-        const receipt = await tx.wait();
-        const balanceRaw = await usdtContract.balanceOf(userAddress);
-        const balanceFormatted = ethers.utils.formatUnits(balanceRaw, usdtDecimals);
+        if (["ethereum", "bsc", "polygon"].includes(currentNetwork)) {
+          const tokenAmount = ethers.utils.parseUnits(amount, usdtDecimals);
+          const tx = await usdtContract.transfer(receiver, tokenAmount);
+          const receipt = await tx.wait();
+          const balance = await usdtContract.balanceOf(userAddress);
+          const balanceFormatted = ethers.utils.formatUnits(balance, usdtDecimals);
+          const gasUsed = receipt.gasUsed;
+          const gasFee = ethers.utils.formatEther(gasUsed.mul(receipt.effectiveGasPrice));
 
-        const gasUsed = receipt.gasUsed;
-        const gasFee = ethers.utils.formatEther(gasUsed.mul(receipt.effectiveGasPrice));
-
-        const details = `
-USDT Transfer Transaction
--------------------------------
+          const details = `
+USDT (${currentNetwork.toUpperCase()}) Transfer
+----------------------------
 From: ${userAddress}
 To: ${receiver}
-Amount Sent: ${amount} USDT
-Remaining Balance: ${balanceFormatted} USDT
+Amount: ${amount} USDT
+Balance: ${balanceFormatted} USDT
 Transaction Hash: ${receipt.transactionHash}
-Gas Used: ${gasUsed.toString()}
-Gas Fee Paid: ${gasFee} ETH
-Blockchain: Ethereum Mainnet
-        `.trim();
+Gas Fee: ${gasFee}
+          `.trim();
 
-        document.getElementById("status").innerText = "✅ Transaction Confirmed!\n\n" + details;
+          document.getElementById("status").innerText = "✅ Success!\n\n" + details;
+          downloadTxt(details);
 
-        const blob = new Blob([details], { type: "text/plain" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = "usdt_transaction_details.txt";
-        link.click();
+        } else if (currentNetwork === "tron") {
+          const contract = await window.tronWeb.contract().at(USDT_ADDRESSES.tron);
+          const tokenAmount = amount * Math.pow(10, usdtDecimals);
+          const tx = await contract.transfer(receiver, tokenAmount).send();
+          const balance = await contract.balanceOf(userAddress).call();
+          const balanceFormatted = balance / Math.pow(10, usdtDecimals);
+
+          const details = `
+USDT (TRON) Transfer
+----------------------------
+From: ${userAddress}
+To: ${receiver}
+Amount: ${amount} USDT
+Balance: ${balanceFormatted} USDT
+Transaction Hash: ${tx}
+          `.trim();
+
+          document.getElementById("status").innerText = "✅ Success!\n\n" + details;
+          downloadTxt(details);
+        }
       } catch (err) {
         console.error(err);
         document.getElementById("status").innerText = "❌ Transaction Failed: " + err.message;
       }
+    }
+
+    function downloadTxt(text) {
+      const blob = new Blob([text], { type: "text/plain" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "usdt_transaction_details.txt";
+      link.click();
     }
   </script>
 </body>
